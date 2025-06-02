@@ -1,0 +1,39 @@
+{
+  "fred_api_key": "df764c31adfa56ce0e019e7f5b89850a",
+  "data_sources": {
+    "primary": "FRED",
+    "backup": "sample_data"
+  },
+  "maturities": {
+    "1mo": {"years": 0.083, "series": "DGS1MO", "label": "1 Month"},
+    "3mo": {"years": 0.25, "series": "DGS3MO", "label": "3 Month"},
+    "6mo": {"years": 0.5, "series": "DGS6MO", "label": "6 Month"},
+    "1yr": {"years": 1, "series": "DGS1", "label": "1 Year"},
+    "2yr": {"years": 2, "series": "DGS2", "label": "2 Year"},
+    "3yr": {"years": 3, "series": "DGS3", "label": "3 Year"},
+    "5yr": {"years": 5, "series": "DGS5", "label": "5 Year"},
+    "7yr": {"years": 7, "series": "DGS7", "label": "7 Year"},
+    "10yr": {"years": 10, "series": "DGS10", "label": "10 Year"},
+    "20yr": {"years": 20, "series": "DGS20", "label": "20 Year"},
+    "30yr": {"years": 30, "series": "DGS30", "label": "30 Year"}
+  },
+  "default_settings": {
+    "start_date": "1990-01-01",
+    "animation_speed": 200,
+    "max_trails": 20,
+    "fade_trails": true,
+    "color_scheme": "viridis",
+    "sampling_frequency": "M"
+  },
+  "visualization_options": {
+    "plot_types": ["animated", "3d_surface", "heatmap", "comparison"],
+    "export_formats": ["html", "gif", "mp4", "png"],
+    "themes": ["plotly_white", "plotly_dark", "ggplot2", "seaborn"]
+  },
+  "web_app": {
+    "port": 8050,
+    "debug": true,
+    "title": "Interactive Yield Curve Visualization",
+    "description": "Explore US Treasury yield curves over time with interactive controls"
+  }
+}
