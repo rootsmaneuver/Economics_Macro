@@ -398,8 +398,7 @@ class WebYieldCurveVisualizer:
             dcc.Graph(id='main-plot', style={'height': '70vh'}),
             
             # Statistics panel
-            html.Div(id='stats-panel', style={'marginTop': 20})
-        ])
+            html.Div(id='stats-panel', style={'marginTop': 20})        ])
         
         # Callbacks
         @self.app.callback(
@@ -428,6 +427,10 @@ class WebYieldCurveVisualizer:
         
         print(f"Starting web application on http://localhost:{port}")
         self.app.run(debug=debug, port=port)
+    
+    def run_server(self, debug=True, port=8050):
+        """Alias for run_web_app for backward compatibility."""
+        return self.run_web_app(debug=debug, port=port)
     
     def export_to_html(self, filename='yield_curve_viz.html'):
         """Export the visualization to an HTML file."""

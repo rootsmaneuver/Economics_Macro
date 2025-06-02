@@ -70,14 +70,13 @@ def run_web_app(port=8050, debug=False):
         config = load_config()
         if not config:
             return
-        
-        # Initialize visualizer with FRED API
+          # Initialize visualizer with FRED API
         visualizer = WebYieldCurveVisualizer(
             fred_api_key=config.get('fred_api_key')
         )
         
         print("📊 Loading real Treasury yield data from FRED...")
-        visualizer.load_data_with_config(config)
+        visualizer.load_data_with_config('config.json')
         
         print(f"🌐 Starting server on http://localhost:{port}")
         print("📱 Open your browser and navigate to the URL above")
@@ -85,7 +84,7 @@ def run_web_app(port=8050, debug=False):
         print("=" * 60)
         
         # Start the web application
-        visualizer.run_server(debug=debug, port=port)
+        visualizer.run_web_app(debug=debug, port=port)
         
     except Exception as e:
         print(f"❌ Error starting web application: {e}")
