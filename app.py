@@ -1,50 +1,39 @@
 #!/usr/bin/env python3
 """
-US Treasury Yield Curve Visualization Application
-Main entry point for the yield curve visualization system
-
-Features:
-- Real-time Treasury data from FRED API
-- Interactive web-based visualization
-- Historical yield curve analysis
-- Professional-grade charts and exports
-
+Treasury Yield Curve Application Launcher
 Author: Valentin Ivanov
+Description: Unified launcher for Treasury yield curve analysis tools
 """
 
 import sys
+import os
 import json
-import argparse
-from pathlib import Path
+import subprocess
+import importlib.util
 
 def check_dependencies():
-    """Check if required packages are installed."""
-    required_packages = ['pandas', 'numpy', 'plotly', 'dash', 'fredapi']
-    missing = []
+    """Check if all required packages are installed."""
+    required_packages = [
+        'pandas', 'numpy', 'plotly', 'dash', 'fredapi'
+    ]
     
+    missing_packages = []
     for package in required_packages:
-        try:
-            __import__(package)
-        except ImportError:
-            missing.append(package)
+        if importlib.util.find_spec(package) is None:
+            missing_packages.append(package)
     
-    if missing:
-        print(f"❌ Missing required packages: {', '.join(missing)}")
-        print("Install them using: pip install " + " ".join(missing))
+    if missing_packages:
+        print(f"❌ Missing packages: {', '.join(missing_packages)}")
+        print("Install with: pip install " + " ".join(missing_packages))
         return False
-    
-    print("✅ All required packages are installed")
-    return True
+    else:
+        print("✅ All required packages are installed")
+        return True
 
 def load_config():
     """Load configuration from config.json."""
-    config_path = Path('config.json')
-    if not config_path.exists():
-        print("❌ config.json not found!")
-        return None
-    
     try:
-        with open(config_path, 'r') as f:
+        with open('config.json', 'r') as f:
             config = json.load(f)
         
         fred_key = config.get('fred_api_key', '')
@@ -70,92 +59,138 @@ def run_web_app(port=8050, debug=False):
         config = load_config()
         if not config:
             return
-          # Initialize visualizer with FRED API
+        
+        # Initialize visualizer with FRED API
         visualizer = WebYieldCurveVisualizer(
             fred_api_key=config.get('fred_api_key')
         )
         
-        print("📊 Loading real Treasury yield data from FRED...")
-        visualizer.load_data_with_config('config.json')
-        
+        print("📊 Starting web server...")
         print(f"🌐 Starting server on http://localhost:{port}")
         print("📱 Open your browser and navigate to the URL above")
         print("⏹️  Press Ctrl+C to stop the server")
-        print("=" * 60)
         
-        # Start the web application
-        visualizer.run_web_app(debug=debug, port=port)
+        # Run the web application
+        visualizer.run_web_app(port=port, debug=debug)
         
     except Exception as e:
         print(f"❌ Error starting web application: {e}")
         print("\n🔧 Troubleshooting:")
         print("   1. Check internet connection")
-        print("   2. Verify FRED API key is valid")
+        print("   2. Verify FRED API key is valid") 
         print("   3. Ensure all required packages are installed")
 
-def run_assessment():
-    """Run comprehensive assessment of the application."""
-    try:
-        from final_assessment import main as assessment
-        assessment()
-    except ImportError:
-        print("❌ Assessment module not found")
-    except Exception as e:
-        print(f"❌ Error running assessment: {e}")
-
-def create_demo():
-    """Create a quick demonstration chart."""
+def run_demo():
+    """Run demo mode to generate sample visualizations."""
     try:
         from web_yield_curve_visualizer import WebYieldCurveVisualizer
         
-        print("🎨 Creating demonstration yield curve...")
+        print("🎬 Running Treasury Yield Curve Demo...")
+        print("=" * 50)
         
+        # Load configuration
         config = load_config()
-        if not config:
-            return
+        fred_api_key = config.get('fred_api_key') if config else None
         
-        visualizer = WebYieldCurveVisualizer(
-            fred_api_key=config.get('fred_api_key')
-        )
+        # Initialize visualizer
+        visualizer = WebYieldCurveVisualizer(fred_api_key=fred_api_key)
         
-        # Load data and create demo
-        visualizer.load_sample_data()
-        demo_file = 'demo_yield_curve.html'
-        visualizer.export_to_html(demo_file)
-        print(f"✅ Demo chart created: {demo_file}")
+        print("📊 Loading yield curve data...")
+        data = visualizer.load_fred_data(start_date='2020-01-01')
         
+        if data is not None and not data.empty:
+            print("✅ Data loaded successfully!")
+            print(f"📈 Data range: {data.index.min().strftime('%Y-%m-%d')} to {data.index.max().strftime('%Y-%m-%d')}")
+            print(f"📊 Data points: {len(data)}")
+            
+            # Generate demo visualization
+            print("🎨 Generating demo visualization...")
+            fig = visualizer.create_animated_plot(data)
+            
+            # Export to HTML
+            output_file = 'demo_yield_curve.html'
+            fig.write_html(output_file)
+            print(f"💾 Demo saved as: {output_file}")
+            print("🌐 Open the HTML file in your browser to view the demo")
+            
+        else:
+            print("❌ Failed to load data for demo")
+            
     except Exception as e:
-        print(f"❌ Error creating demo: {e}")
+        print(f"❌ Demo failed: {e}")
+
+def run_assessment():
+    """Run the assessment tool."""
+    try:
+        from final_assessment import main as assessment_main
+        assessment_main()
+    except Exception as e:
+        print(f"❌ Assessment failed: {e}")
+
+def show_help():
+    """Display help information."""
+    help_text = """
+🏛️  Treasury Yield Curve Application
+=====================================
+
+USAGE:
+    python app.py [OPTION]
+
+OPTIONS:
+    --web           Launch interactive web application
+    --demo          Generate demo visualization
+    --assess        Run data quality assessment  
+    --help, -h      Show this help message
+
+INTERACTIVE MODE:
+    python app.py   (no arguments for interactive menu)
+
+EXAMPLES:
+    python app.py --web        # Start web server on port 8050
+    python app.py --demo       # Generate HTML demo file
+    python app.py --assess     # Test FRED API and data quality
+
+For more information, visit: https://github.com/your-repo
+"""
+    print(help_text)
+
+def interactive_menu():
+    """Display interactive menu for user selection."""
+    while True:
+        print("\n🏛️  Treasury Yield Curve Application")
+        print("=" * 50)
+        print("1. 🌐 Launch Web Application")
+        print("2. 🎬 Generate Demo")
+        print("3. 🔍 Run Assessment")
+        print("4. ❓ Help")
+        print("5. 🚪 Exit")
+        
+        try:
+            choice = input("\nSelect option (1-5): ").strip()
+            
+            if choice == '1':
+                run_web_app()
+                break
+            elif choice == '2':
+                run_demo()
+            elif choice == '3':
+                run_assessment()
+            elif choice == '4':
+                show_help()
+            elif choice == '5':
+                print("👋 Goodbye!")
+                break
+            else:
+                print("❌ Invalid choice. Please enter 1-5.")
+                
+        except KeyboardInterrupt:
+            print("\n👋 Goodbye!")
+            break
+        except Exception as e:
+            print(f"❌ Error: {e}")
 
 def main():
-    """Main entry point with command line interface."""
-    parser = argparse.ArgumentParser(
-        description="US Treasury Yield Curve Visualization Application",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python app.py                    # Interactive mode
-  python app.py --web             # Launch web application
-  python app.py --demo            # Create demo chart
-  python app.py --assess          # Run assessment
-  python app.py --web --port 9000 # Custom port
-        """
-    )
-    
-    parser.add_argument('--web', action='store_true', 
-                       help='Launch web application')
-    parser.add_argument('--demo', action='store_true',
-                       help='Create demonstration chart')
-    parser.add_argument('--assess', action='store_true',
-                       help='Run comprehensive assessment')
-    parser.add_argument('--port', type=int, default=8050,
-                       help='Port for web application (default: 8050)')
-    parser.add_argument('--debug', action='store_true',
-                       help='Enable debug mode')
-    
-    args = parser.parse_args()
-    
-    # Display header
+    """Main application entry point."""
     print("=" * 60)
     print("🏛️  US Treasury Yield Curve Visualization")
     print("   Real-Time Financial Data Analysis")
@@ -163,43 +198,26 @@ Examples:
     
     # Check dependencies first
     if not check_dependencies():
-        return 1
+        return
     
-    # Handle command line arguments
-    if args.web:
-        run_web_app(port=args.port, debug=args.debug)
-    elif args.demo:
-        create_demo()
-    elif args.assess:
-        run_assessment()
-    else:
-        # Interactive mode
-        print("\nChoose your preferred option:")
-        print("1. 🌐 Launch Web Application (Recommended)")
-        print("2. 🎨 Create Demo Chart")
-        print("3. 📊 Run Assessment")
-        print("4. ❌ Exit")
+    # Parse command line arguments
+    if len(sys.argv) > 1:
+        arg = sys.argv[1].lower()
         
-        try:
-            choice = input("\nEnter your choice (1-4): ").strip()
-            
-            if choice == '1':
-                run_web_app(port=args.port, debug=args.debug)
-            elif choice == '2':
-                create_demo()
-            elif choice == '3':
-                run_assessment()
-            elif choice == '4':
-                print("👋 Goodbye!")
-            else:
-                print("❌ Invalid choice. Please select 1-4.")
-                return 1
-                
-        except KeyboardInterrupt:
-            print("\n👋 Goodbye!")
-            return 0
-    
-    return 0
+        if arg in ['--web', '-w']:
+            run_web_app()
+        elif arg in ['--demo', '-d']:
+            run_demo()
+        elif arg in ['--assess', '-a']:
+            run_assessment()
+        elif arg in ['--help', '-h']:
+            show_help()
+        else:
+            print(f"❌ Unknown argument: {sys.argv[1]}")
+            show_help()
+    else:
+        # No arguments - show interactive menu
+        interactive_menu()
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

@@ -1,7 +1,7 @@
 """
-Enhanced Yield Curve Visualizer with Web Export Capabilities
+Interactive Treasury Yield Curve Visualizer with Real FRED Data
 Author: Valentin Ivanov
-Description: Advanced yield curve visualization with Plotly for web deployment
+Description: Comprehensive web application for Treasury yield curve analysis
 """
 
 import pandas as pd
@@ -10,35 +10,31 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 import dash
-from dash import dcc, html, Input, Output, callback
+from dash import dcc, html, Input, Output, State, callback
 import datetime as dt
-from typing import Dict, List, Tuple, Optional
+from fredapi import Fred
 import json
+
+# Check if FRED API is available
 try:
     from fredapi import Fred
     FREDAPI_AVAILABLE = True
 except ImportError:
     FREDAPI_AVAILABLE = False
-    print("Warning: fredapi not available. Using sample data only.")
+    print("⚠️ FRED API not available. Install with: pip install fredapi")
 
 class WebYieldCurveVisualizer:
-    """Web-ready yield curve visualizer using Plotly and Dash."""
+    """Interactive web application for Treasury yield curve visualization with real FRED data."""
     
     def __init__(self, fred_api_key=None):
-        """Initialize the web visualizer."""
+        """Initialize the visualizer with FRED API key."""
+        self.fred = None
         self.data = None
-        self.app = None
-        self.fred_api_key = fred_api_key
+        self.using_real_data = False
         
-        # Initialize FRED API client if available
-        if FREDAPI_AVAILABLE and fred_api_key:
-            self.fred = Fred(api_key=fred_api_key)
-        else:
-            self.fred = None
-        
-        # Yield curve maturities
+        # Treasury maturities configuration
         self.maturities = {
-            '1mo': {'years': 1/12, 'series': 'DGS1MO', 'label': '1 Month'},
+            '1mo': {'years': 0.083, 'series': 'DGS1MO', 'label': '1 Month'},
             '3mo': {'years': 0.25, 'series': 'DGS3MO', 'label': '3 Month'},
             '6mo': {'years': 0.5, 'series': 'DGS6MO', 'label': '6 Month'},
             '1yr': {'years': 1, 'series': 'DGS1', 'label': '1 Year'},
@@ -50,50 +46,38 @@ class WebYieldCurveVisualizer:
             '20yr': {'years': 20, 'series': 'DGS20', 'label': '20 Year'},
             '30yr': {'years': 30, 'series': 'DGS30', 'label': '30 Year'}
         }
-          # Color palette
-        self.color_scale = px.colors.sequential.Viridis
         
-    def load_sample_data(self, start_date='1990-01-01', end_date=None):
-        """Load sample yield curve data."""
-        if end_date is None:
-            end_date = dt.datetime.now().strftime('%Y-%m-%d')
-            
-        date_range = pd.date_range(start=start_date, end=end_date, freq='ME')
-        
-        # Generate realistic yield curve data
-        np.random.seed(42)
-        all_data = {}
-        
-        for maturity, info in self.maturities.items():
-            base_rate = 0.5 + info['years'] * 0.3  # Upward sloping base
-              # Add macroeconomic cycles and trends
-            time_trend = np.linspace(5, 1, len(date_range))  # Declining trend
-            business_cycle = 2 * np.sin(np.linspace(0, 6*np.pi, len(date_range)))
-            noise = np.random.normal(0, 0.3, len(date_range))
-            
-            rates = base_rate + time_trend + business_cycle + noise
-            rates = np.maximum(rates, 0.01)  # Floor at 1bp
-            
-            all_data[maturity] = rates
-        
-        self.data = pd.DataFrame(all_data, index=date_range)
-        return self.data
+        # Initialize FRED API if available
+        if FREDAPI_AVAILABLE and fred_api_key:
+            try:
+                self.fred = Fred(api_key=fred_api_key)
+                print("✅ FRED API initialized successfully")
+            except Exception as e:
+                print(f"⚠️ FRED API initialization failed: {e}")
+                
+        # Create Dash app
+        self.app = dash.Dash(__name__)
+        self.setup_layout()
+        self.setup_callbacks()
     
     def load_fred_data(self, start_date='1990-01-01', end_date=None):
-        """Load real yield curve data from FRED API."""
+        """Load real Treasury yield data from FRED API."""
         if not FREDAPI_AVAILABLE:
-            print("FRED API not available. Using sample data instead.")
+            print("❌ FRED API not available. Using sample data.")
             return self.load_sample_data(start_date, end_date)
             
         if not self.fred:
-            print("FRED API key not provided. Using sample data instead.")
+            print("❌ FRED API key not provided. Using sample data.")
             return self.load_sample_data(start_date, end_date)
         
         if end_date is None:
             end_date = dt.datetime.now().strftime('%Y-%m-%d')
         
-        print("Fetching real yield curve data from FRED...")
+        print("🏛️ Fetching real Treasury yield data from FRED...")
+        print("-" * 50)
+        
         all_data = {}
+        successful_series = 0
         
         for maturity, info in self.maturities.items():
             try:
@@ -103,357 +87,587 @@ class WebYieldCurveVisualizer:
                     start=start_date, 
                     end=end_date
                 )
+                
                 if not series_data.empty:
-                    # Resample to monthly frequency and forward fill missing values
-                    monthly_data = series_data.resample('ME').last().ffill()
-                    all_data[maturity] = monthly_data
-                    print(f"✓ {info['label']}: {len(monthly_data)} data points")
+                    # Clean and process the data
+                    series_data = series_data.dropna()
+                    if len(series_data) > 0:
+                        all_data[maturity] = series_data
+                        successful_series += 1
+                        print(f"✅ {info['label']}: {len(series_data)} data points, Current: {series_data.iloc[-1]:.2f}%")
+                    else:
+                        print(f"⚠️ No valid data for {info['label']}")
                 else:
-                    print(f"⚠ No data available for {info['label']}")
+                    print(f"⚠️ No data available for {info['label']}")
                     
             except Exception as e:
-                print(f"⚠ Error fetching {info['label']}: {str(e)}")
+                print(f"❌ Error fetching {info['label']}: {str(e)}")
                 continue
         
-        if all_data:
+        if all_data and successful_series >= 5:  # At least 5 series for a meaningful curve
             # Combine all series into a single DataFrame
             self.data = pd.DataFrame(all_data)
             
-            # Drop rows where all values are NaN
-            self.data = self.data.dropna(how='all')
+            # Clean the data
+            self.data = self.data.dropna(how='all')  # Remove rows with all NaN
+            self.data = self.data.fillna(method='ffill')  # Forward fill missing values
             
-            # Forward fill any remaining NaN values
-            self.data = self.data.ffill()
+            self.using_real_data = True
+            print(f"\n✅ Successfully loaded REAL FRED data!")
+            print(f"📊 Data range: {self.data.index.min().strftime('%Y-%m-%d')} to {self.data.index.max().strftime('%Y-%m-%d')}")
+            print(f"📈 Total observations: {len(self.data)}")
+            print(f"🎯 Series coverage: {len(all_data)}/{len(self.maturities)}")
             
-            print(f"✓ Successfully loaded yield curve data: {len(self.data)} observations")
-            print(f"Date range: {self.data.index.min().strftime('%Y-%m-%d')} to {self.data.index.max().strftime('%Y-%m-%d')}")
             return self.data
         else:
-            print("⚠ No FRED data could be loaded. Using sample data instead.")
+            print(f"❌ Insufficient real data ({successful_series} series). Using sample data.")
             return self.load_sample_data(start_date, end_date)
     
-    def load_data_with_config(self, config_path='config.json'):
-        """Load data using configuration file settings."""
-        try:
-            with open(config_path, 'r') as f:
-                config = json.load(f)
+    def load_sample_data(self, start_date='1990-01-01', end_date=None):
+        """Load realistic sample Treasury yield data as fallback."""
+        if end_date is None:
+            end_date = dt.datetime.now().strftime('%Y-%m-%d')
+        
+        print("📊 Generating realistic sample Treasury yield data...")
+        
+        # Create date range
+        date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+        
+        # Current realistic yield levels (as of May 2025)
+        current_yields = {
+            '1mo': 4.35, '3mo': 4.37, '6mo': 4.36, '1yr': 4.13,
+            '2yr': 3.92, '3yr': 3.95, '5yr': 4.00, '7yr': 4.15,
+            '10yr': 4.43, '20yr': 4.70, '30yr': 4.92
+        }
+        
+        all_data = {}
+        
+        for maturity, info in self.maturities.items():
+            # Base rate with realistic yield curve shape
+            base_rate = current_yields.get(maturity, 4.0)
             
-            # Get settings from config
-            fred_api_key = config.get('data_sources', {}).get('fred_api_key')
-            primary_source = config.get('data_sources', {}).get('primary', 'sample_data')
-            start_date = config.get('default_settings', {}).get('start_date', '1990-01-01')
+            # Add realistic historical variation
+            # Gradual decline from higher rates in the past
+            time_trend = np.linspace(2.0, 0.0, len(date_range))
             
-            # Update API key if provided in config
-            if fred_api_key and fred_api_key != "YOUR_FRED_API_KEY_HERE":
-                self.fred_api_key = fred_api_key
-                if FREDAPI_AVAILABLE:
-                    self.fred = Fred(api_key=fred_api_key)
+            # Business cycle variation
+            business_cycle = 0.8 * np.sin(np.linspace(0, 4*np.pi, len(date_range)))
             
-            # Load data based on primary source setting
-            if primary_source == "FRED" and self.fred:
-                return self.load_fred_data(start_date)
-            else:
-                return self.load_sample_data(start_date)
-                
-        except FileNotFoundError:
-            print("Config file not found. Using sample data with default settings.")
-            return self.load_sample_data()
-        except Exception as e:
-            print(f"Error loading config: {str(e)}. Using sample data.")
-            return self.load_sample_data()
+            # Random market noise
+            noise = np.random.normal(0, 0.15, len(date_range))
+            
+            # Combine components
+            rates = base_rate + time_trend + business_cycle + noise
+            rates = np.maximum(rates, 0.01)  # Floor at 1 basis point
+            
+            all_data[maturity] = rates
+        
+        self.data = pd.DataFrame(all_data, index=date_range)
+        self.using_real_data = False
+        
+        print(f"✅ Generated sample data with realistic current yields")
+        print(f"📊 Data range: {start_date} to {end_date}")
+        print(f"📈 Total observations: {len(self.data)}")
+        
+        return self.data
     
-    def create_animated_plot(self):
-        """Create an animated yield curve plot."""
-        if self.data is None:
-            self.load_sample_data()
+    def setup_layout(self):
+        """Setup the Dash app layout with all components."""
         
-        # Prepare data for animation
-        frames = []
-        maturity_years = [self.maturities[m]['years'] for m in self.data.columns]
-        
-        for i, (date, row) in enumerate(self.data.iterrows()):
-            frame_data = go.Scatter(
-                x=maturity_years,
-                y=row.values,
-                mode='lines+markers',
-                name=f'Yield Curve {date.strftime("%Y-%m")}',
-                line=dict(width=3, color='red'),
-                marker=dict(size=8)
-            )
+        self.app.layout = html.Div([
+            # Header
+            html.Div([
+                html.H1("🏛️ US Treasury Yield Curve Analyzer", 
+                       style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '10px'}),
+                html.P("Interactive visualization of Treasury yields with real-time FRED data",
+                       style={'textAlign': 'center', 'color': '#7f8c8d', 'fontSize': '18px'}),
+                
+                # Data source indicator
+                html.Div(id='data-source-indicator', 
+                        style={'textAlign': 'center', 'marginBottom': '20px'}),
+                
+            ], style={'backgroundColor': '#ecf0f1', 'padding': '20px', 'marginBottom': '20px'}),
             
-            frames.append(go.Frame(
-                data=[frame_data],
-                name=str(i),
+            # Control Panel
+            html.Div([
+                html.H3("📊 Visualization Controls", style={'color': '#2c3e50'}),
+                
+                # Date Range Selector
+                html.Div([
+                    html.Label("📅 Select Date Range:", style={'fontWeight': 'bold', 'marginBottom': '10px'}),
+                    dcc.DatePickerRange(
+                        id='date-range-picker',
+                        start_date=dt.datetime(2020, 1, 1),
+                        end_date=dt.datetime.now(),
+                        display_format='YYYY-MM-DD',
+                        style={'marginBottom': '15px'}
+                    ),
+                ], style={'marginBottom': '20px'}),
+                
+                # Animation Controls for Time Lapse
+                html.Div([
+                    html.Label("⏯️ Animation Controls:", style={'fontWeight': 'bold', 'marginBottom': '10px'}),
+                    html.Div([
+                        html.Button("▶️ Play", id="play-button", n_clicks=0, 
+                                   style={'marginRight': '10px', 'backgroundColor': '#27ae60', 'color': 'white', 'border': 'none', 'padding': '8px 15px', 'borderRadius': '4px'}),
+                        html.Button("⏸️ Pause", id="pause-button", n_clicks=0,
+                                   style={'marginRight': '10px', 'backgroundColor': '#e74c3c', 'color': 'white', 'border': 'none', 'padding': '8px 15px', 'borderRadius': '4px'}),
+                        html.Button("⏹️ Stop", id="stop-button", n_clicks=0,
+                                   style={'backgroundColor': '#95a5a6', 'color': 'white', 'border': 'none', 'padding': '8px 15px', 'borderRadius': '4px'}),
+                    ], style={'marginBottom': '15px'}),
+                    
+                    html.Label("🚀 Animation Speed:", style={'fontWeight': 'bold'}),
+                    dcc.Slider(
+                        id='animation-speed-slider',
+                        min=50,
+                        max=1000,
+                        step=50,
+                        value=200,
+                        marks={50: 'Fast', 200: 'Medium', 500: 'Slow', 1000: 'Very Slow'},
+                        tooltip={"placement": "bottom", "always_visible": True}
+                    ),
+                ], style={'marginBottom': '20px'}),
+                
+                # Visualization Type Selector
+                html.Div([
+                    html.Label("📈 Visualization Type:", style={'fontWeight': 'bold', 'marginBottom': '10px'}),
+                    dcc.Dropdown(
+                        id='viz-type-dropdown',
+                        options=[
+                            {'label': '📹 Animated Time Lapse', 'value': 'animated'},
+                            {'label': '🏔️ 3D Surface Plot', 'value': '3d_surface'},
+                            {'label': '🔥 Heatmap', 'value': 'heatmap'}
+                        ],
+                        value='animated',
+                        style={'marginBottom': '15px'}
+                    ),
+                ]),
+                
+            ], style={'backgroundColor': '#f8f9fa', 'padding': '20px', 'marginBottom': '20px', 'borderRadius': '8px'}),
+            
+            # Main Visualization Area
+            html.Div([
+                dcc.Graph(id='main-chart', style={'height': '600px'})
+            ]),
+            
+            # Current Yield Curve Display
+            html.Div([
+                html.H3("📊 Current Yield Curve", style={'color': '#2c3e50'}),
+                html.Div(id='current-yields-display')
+            ], style={'backgroundColor': '#f8f9fa', 'padding': '20px', 'marginTop': '20px', 'borderRadius': '8px'}),
+            
+            # Hidden div to store animation state
+            html.Div(id='animation-state', style={'display': 'none'}),
+            
+            # Interval component for animation
+            dcc.Interval(
+                id='animation-interval',
+                interval=200,  # milliseconds
+                n_intervals=0,
+                disabled=True
+            )
+        ])
+    
+    def setup_callbacks(self):
+        """Setup all Dash callbacks for interactivity."""
+        
+        @self.app.callback(
+            Output('data-source-indicator', 'children'),
+            Input('main-chart', 'id')  # Trigger on app load
+        )
+        def update_data_source_indicator(_):
+            """Display whether using real or sample data."""
+            if self.using_real_data:
+                return html.Div([
+                    html.Span("🟢 LIVE FRED DATA", 
+                             style={'backgroundColor': '#d4edda', 'color': '#155724', 
+                                   'padding': '8px 15px', 'borderRadius': '20px', 
+                                   'fontWeight': 'bold', 'border': '1px solid #c3e6cb'})
+                ])
+            else:
+                return html.Div([
+                    html.Span("🔴 SAMPLE DATA", 
+                             style={'backgroundColor': '#f8d7da', 'color': '#721c24', 
+                                   'padding': '8px 15px', 'borderRadius': '20px', 
+                                   'fontWeight': 'bold', 'border': '1px solid #f5c6cb'})
+                ])
+        
+        @self.app.callback(
+            Output('main-chart', 'figure'),
+            [Input('viz-type-dropdown', 'value'),
+             Input('date-range-picker', 'start_date'),
+             Input('date-range-picker', 'end_date'),
+             Input('animation-speed-slider', 'value'),
+             Input('animation-interval', 'n_intervals')],
+            [State('animation-state', 'children')]
+        )
+        def update_main_chart(viz_type, start_date, end_date, animation_speed, n_intervals, animation_state):
+            """Update the main chart based on selected visualization type."""
+            
+            if self.data is None:
+                # Load data if not already loaded
+                self.load_fred_data()
+            
+            if self.data is None or self.data.empty:
+                return go.Figure().add_annotation(
+                    text="No data available", 
+                    xref="paper", yref="paper", 
+                    x=0.5, y=0.5, showarrow=False
+                )
+            
+            # Filter data by date range
+            if start_date and end_date:
+                mask = (self.data.index >= start_date) & (self.data.index <= end_date)
+                filtered_data = self.data.loc[mask].copy()
+            else:
+                filtered_data = self.data.copy()
+            
+            if filtered_data.empty:
+                return go.Figure().add_annotation(
+                    text="No data in selected date range", 
+                    xref="paper", yref="paper", 
+                    x=0.5, y=0.5, showarrow=False
+                )
+            
+            # Sort data chronologically
+            filtered_data = filtered_data.sort_index()
+            
+            # Generate visualization based on type
+            if viz_type == 'animated':
+                return self.create_animated_plot(filtered_data, animation_speed)
+            elif viz_type == '3d_surface':
+                return self.create_3d_surface_plot(filtered_data)
+            elif viz_type == 'heatmap':
+                return self.create_heatmap_plot(filtered_data)
+            else:
+                return self.create_animated_plot(filtered_data, animation_speed)
+        
+        @self.app.callback(
+            Output('animation-interval', 'disabled'),
+            Output('animation-interval', 'interval'),
+            [Input('play-button', 'n_clicks'),
+             Input('pause-button', 'n_clicks'),
+             Input('stop-button', 'n_clicks'),
+             Input('animation-speed-slider', 'value')]
+        )
+        def control_animation(play_clicks, pause_clicks, stop_clicks, speed):
+            """Control animation playback."""
+            ctx = dash.callback_context
+            
+            if not ctx.triggered:
+                return True, speed  # Disabled by default
+            
+            button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+            
+            if button_id == 'play-button':
+                return False, speed  # Enable animation
+            elif button_id == 'pause-button' or button_id == 'stop-button':
+                return True, speed   # Disable animation
+            elif button_id == 'animation-speed-slider':
+                # Update speed but keep current state
+                return dash.no_update, speed
+            
+            return True, speed
+        
+        @self.app.callback(
+            Output('current-yields-display', 'children'),
+            Input('main-chart', 'figure')
+        )
+        def update_current_yields(_):
+            """Display current yield curve values."""
+            if self.data is None or self.data.empty:
+                return "No data available"
+            
+            latest_data = self.data.iloc[-1]
+            latest_date = self.data.index[-1].strftime('%Y-%m-%d')
+            
+            yields_display = [
+                html.H4(f"As of {latest_date}", style={'color': '#2c3e50', 'marginBottom': '15px'})
+            ]
+            
+            # Create yield curve display
+            yields_list = []
+            for maturity, value in latest_data.items():
+                if pd.notna(value):
+                    maturity_label = self.maturities[maturity]['label']
+                    yields_list.append(
+                        html.Div([
+                            html.Span(f"{maturity_label}: ", style={'fontWeight': 'bold'}),
+                            html.Span(f"{value:.2f}%", style={'color': '#e74c3c', 'fontSize': '18px'})
+                        ], style={'display': 'inline-block', 'marginRight': '20px', 'marginBottom': '8px'})
+                    )
+            
+            yields_display.extend(yields_list)
+            return yields_display
+    
+    def create_animated_plot(self, data, animation_speed=200):
+        """Create animated time lapse yield curve plot."""
+        
+        # Prepare maturity years for x-axis
+        maturity_years = [self.maturities[col]['years'] for col in data.columns if col in self.maturities]
+        maturity_labels = [self.maturities[col]['label'] for col in data.columns if col in self.maturities]
+        
+        # Sample data for animation (every 30 days to manage performance)
+        sample_freq = max(1, len(data) // 100)  # Max 100 frames
+        sampled_data = data.iloc[::sample_freq].copy()
+        
+        # Create frames for animation
+        frames = []
+        for i, (date, row) in enumerate(sampled_data.iterrows()):
+            yields = [row[col] for col in data.columns if col in self.maturities and pd.notna(row[col])]
+            valid_maturities = [self.maturities[col]['years'] for col in data.columns if col in self.maturities and pd.notna(row[col])]
+            valid_labels = [self.maturities[col]['label'] for col in data.columns if col in self.maturities and pd.notna(row[col])]
+            
+            frame = go.Frame(
+                data=[
+                    go.Scatter(
+                        x=valid_maturities,
+                        y=yields,
+                        mode='lines+markers',
+                        name='Yield Curve',
+                        line=dict(color='#3498db', width=3),
+                        marker=dict(size=8, color='#e74c3c'),
+                        hovertemplate='<b>%{text}</b><br>Yield: %{y:.2f}%<extra></extra>',
+                        text=valid_labels
+                    )
+                ],
+                name=date.strftime('%Y-%m-%d'),
                 layout=go.Layout(
-                    title=f"US Treasury Yield Curve - {date.strftime('%B %Y')}",
+                    title=f"US Treasury Yield Curve - {date.strftime('%B %d, %Y')}",
                     annotations=[
                         dict(
                             x=0.02, y=0.98,
                             xref='paper', yref='paper',
-                            text=f"Date: {date.strftime('%Y-%m-%d')}",
+                            text=f"📅 {date.strftime('%B %d, %Y')}",
                             showarrow=False,
-                            bgcolor='white',
-                            bordercolor='black',
+                            font=dict(size=16, color='#2c3e50'),
+                            bgcolor='rgba(255,255,255,0.8)',
+                            bordercolor='#bdc3c7',
                             borderwidth=1
                         )
                     ]
                 )
-            ))
+            )
+            frames.append(frame)
         
-        # Initial frame
-        initial_data = go.Scatter(
-            x=maturity_years,
-            y=self.data.iloc[0].values,
-            mode='lines+markers',
-            name='Yield Curve',
-            line=dict(width=3, color='red'),
-            marker=dict(size=8)
+        # Create initial plot
+        initial_yields = [sampled_data.iloc[0][col] for col in data.columns if col in self.maturities and pd.notna(sampled_data.iloc[0][col])]
+        initial_maturities = [self.maturities[col]['years'] for col in data.columns if col in self.maturities and pd.notna(sampled_data.iloc[0][col])]
+        initial_labels = [self.maturities[col]['label'] for col in data.columns if col in self.maturities and pd.notna(sampled_data.iloc[0][col])]
+        
+        fig = go.Figure(
+            data=[
+                go.Scatter(
+                    x=initial_maturities,
+                    y=initial_yields,
+                    mode='lines+markers',
+                    name='Yield Curve',
+                    line=dict(color='#3498db', width=3),
+                    marker=dict(size=8, color='#e74c3c'),
+                    hovertemplate='<b>%{text}</b><br>Yield: %{y:.2f}%<extra></extra>',
+                    text=initial_labels
+                )
+            ],
+            frames=frames
         )
         
-        # Create figure
-        fig = go.Figure(
-            data=[initial_data],
-            frames=frames,
-            layout=go.Layout(
-                title="Interactive US Treasury Yield Curve (1990-2025)",
-                xaxis=dict(
-                    title="Maturity (Years)",
-                    range=[0, max(maturity_years) * 1.1],
-                    showgrid=True
-                ),
-                yaxis=dict(
-                    title="Yield (%)",
-                    range=[self.data.min().min() - 0.5, self.data.max().max() + 0.5],
-                    showgrid=True
-                ),
-                updatemenus=[{
-                    "buttons": [
-                        {
-                            "args": [None, {"frame": {"duration": 100, "redraw": True},
-                                          "fromcurrent": True, "transition": {"duration": 50}}],
-                            "label": "Play",
-                            "method": "animate"
-                        },
-                        {
-                            "args": [[None], {"frame": {"duration": 0, "redraw": True},
-                                             "mode": "immediate", "transition": {"duration": 0}}],
-                            "label": "Pause",
-                            "method": "animate"
-                        }
-                    ],
-                    "direction": "left",
-                    "pad": {"r": 10, "t": 87},
-                    "showactive": False,
-                    "type": "buttons",
-                    "x": 0.1,
-                    "xanchor": "right",
-                    "y": 0,
-                    "yanchor": "top"
-                }],
-                sliders=[{
-                    "active": 0,
-                    "yanchor": "top",
-                    "xanchor": "left",
-                    "currentvalue": {
-                        "font": {"size": 20},
-                        "prefix": "Date: ",
-                        "visible": True,
-                        "xanchor": "right"
+        # Update layout
+        fig.update_layout(
+            title="🎬 US Treasury Yield Curve Time Lapse",
+            xaxis_title="Maturity (Years)",
+            yaxis_title="Yield (%)",
+            xaxis=dict(type='log', tickmode='array', tickvals=maturity_years, ticktext=maturity_labels),
+            yaxis=dict(range=[0, max(data.max()) * 1.1]),
+            showlegend=False,
+            template='plotly_white',
+            font=dict(size=12),
+            updatemenus=[{
+                'type': 'buttons',
+                'direction': 'left',
+                'showactive': False,
+                'x': 0.1,
+                'y': 0,
+                'xanchor': 'right',
+                'yanchor': 'top',
+                'pad': {'t': 87, 'r': 10},
+                'buttons': [
+                    {
+                        'label': '▶️ Play',
+                        'method': 'animate',
+                        'args': [None, {
+                            'frame': {'duration': animation_speed, 'redraw': True},
+                            'fromcurrent': True,
+                            'transition': {'duration': animation_speed//2, 'easing': 'quadratic-in-out'}
+                        }]
                     },
-                    "transition": {"duration": 300, "easing": "cubic-in-out"},
-                    "pad": {"b": 10, "t": 50},
-                    "len": 0.9,
-                    "x": 0.1,
-                    "y": 0,
-                    "steps": [
-                        {
-                            "args": [[str(i)], {
-                                "frame": {"duration": 300, "redraw": True},
-                                "mode": "immediate",
-                                "transition": {"duration": 300}
-                            }],
-                            "label": self.data.index[i].strftime('%Y-%m'),
-                            "method": "animate"
-                        }
-                        for i in range(len(self.data))
-                    ]
-                }],
-                height=600,
-                template="plotly_white"
-            )
+                    {
+                        'label': '⏸️ Pause',
+                        'method': 'animate',
+                        'args': [[None], {
+                            'frame': {'duration': 0, 'redraw': False},
+                            'mode': 'immediate',
+                            'transition': {'duration': 0}
+                        }]
+                    }
+                ]
+            }],
+            sliders=[{
+                'active': 0,
+                'yanchor': 'top',
+                'xanchor': 'left',
+                'currentvalue': {
+                    'font': {'size': 20},
+                    'prefix': 'Date: ',
+                    'visible': True,
+                    'xanchor': 'right'
+                },
+                'transition': {'duration': animation_speed//2, 'easing': 'cubic-in-out'},
+                'pad': {'b': 10, 't': 50},
+                'len': 0.9,
+                'x': 0.1,
+                'y': 0,
+                'steps': [
+                    {
+                        'args': [
+                            [frame.name],
+                            {
+                                'frame': {'duration': animation_speed, 'redraw': True},
+                                'mode': 'immediate',
+                                'transition': {'duration': animation_speed//2}
+                            }
+                        ],
+                        'label': frame.name,
+                        'method': 'animate'
+                    }
+                    for frame in frames
+                ]
+            }]
         )
         
         return fig
     
-    def create_3d_surface_plot(self):
-        """Create a 3D surface plot of yield curves over time."""
-        if self.data is None:
-            self.load_sample_data()
+    def create_3d_surface_plot(self, data):
+        """Create 3D surface plot of yield curve over time."""
         
         # Prepare data for 3D surface
-        maturity_years = [self.maturities[m]['years'] for m in self.data.columns]
-        dates_numeric = [(d - self.data.index[0]).days for d in self.data.index]
+        maturity_years = [self.maturities[col]['years'] for col in data.columns if col in self.maturities]
+        maturity_labels = [self.maturities[col]['label'] for col in data.columns if col in self.maturities]
         
+        # Sample data to manage performance
+        sample_freq = max(1, len(data) // 200)  # Max 200 time points
+        sampled_data = data.iloc[::sample_freq].copy()
+        
+        # Create meshgrid
+        dates_numeric = np.arange(len(sampled_data))
         X, Y = np.meshgrid(maturity_years, dates_numeric)
-        Z = self.data.values
         
-        fig = go.Figure(data=[go.Surface(
-            x=X,
-            y=Y,
-            z=Z,
-            colorscale='Viridis',
-            colorbar=dict(title="Yield (%)"),
-            hovertemplate='Maturity: %{x:.1f} years<br>Days: %{y}<br>Yield: %{z:.2f}%<extra></extra>'
-        )])
+        # Prepare Z values (yields)
+        Z = []
+        for _, row in sampled_data.iterrows():
+            z_row = [row[col] for col in data.columns if col in self.maturities]
+            Z.append(z_row)
+        Z = np.array(Z)
+        
+        # Create 3D surface plot
+        fig = go.Figure(data=[
+            go.Surface(
+                x=X,
+                y=Y, 
+                z=Z,
+                colorscale='Viridis',
+                colorbar=dict(title="Yield (%)"),
+                hovertemplate='<b>Maturity:</b> %{x:.1f} years<br><b>Date Index:</b> %{y}<br><b>Yield:</b> %{z:.2f}%<extra></extra>'
+            )
+        ])
         
         fig.update_layout(
-            title="3D Yield Curve Evolution",
+            title='🏔️ 3D Treasury Yield Surface Over Time',
             scene=dict(
-                xaxis_title="Maturity (Years)",
-                yaxis_title="Days from Start",
-                zaxis_title="Yield (%)",
-                camera=dict(eye=dict(x=1.5, y=1.5, z=1.5))
+                xaxis_title='Maturity (Years)',
+                yaxis_title='Time Period',
+                zaxis_title='Yield (%)',
+                camera=dict(eye=dict(x=1.2, y=1.2, z=0.8))
             ),
-            height=700,
-            template="plotly_white"
+            template='plotly_white',
+            font=dict(size=12)
         )
         
         return fig
     
-    def create_heatmap(self):
-        """Create a heatmap of yield curves over time."""
-        if self.data is None:
-            self.load_sample_data()
+    def create_heatmap_plot(self, data):
+        """Create heatmap of yield curve over time."""
         
+        # Sample data for better visualization
+        sample_freq = max(1, len(data) // 100)  # Max 100 rows
+        sampled_data = data.iloc[::sample_freq].copy()
+        
+        # Prepare data for heatmap
+        heatmap_data = sampled_data.T  # Transpose so maturities are on y-axis
+        
+        # Create custom hover text
+        hover_text = []
+        for i, maturity in enumerate(heatmap_data.index):
+            hover_row = []
+            for j, date in enumerate(heatmap_data.columns):
+                if pd.notna(heatmap_data.iloc[i, j]):
+                    hover_row.append(
+                        f"Date: {date.strftime('%Y-%m-%d')}<br>"
+                        f"Maturity: {self.maturities[maturity]['label']}<br>"
+                        f"Yield: {heatmap_data.iloc[i, j]:.2f}%"
+                    )
+                else:
+                    hover_row.append("No data")
+            hover_text.append(hover_row)
+        
+        # Create heatmap
         fig = go.Figure(data=go.Heatmap(
-            z=self.data.T.values,
-            x=[d.strftime('%Y-%m') for d in self.data.index],
-            y=[self.maturities[m]['label'] for m in self.data.columns],
+            z=heatmap_data.values,
+            x=[date.strftime('%Y-%m-%d') for date in heatmap_data.columns],
+            y=[self.maturities[maturity]['label'] for maturity in heatmap_data.index],
             colorscale='RdYlBu_r',
             colorbar=dict(title="Yield (%)"),
-            hovertemplate='Date: %{x}<br>Maturity: %{y}<br>Yield: %{z:.2f}%<extra></extra>'
+            hovertemplate='%{customdata}<extra></extra>',
+            customdata=hover_text
         ))
         
         fig.update_layout(
-            title="Yield Curve Heatmap",
-            xaxis_title="Date",
-            yaxis_title="Maturity",
-            height=500,
-            template="plotly_white"
+            title='🔥 Treasury Yield Heatmap Over Time',
+            xaxis_title='Date',
+            yaxis_title='Maturity',
+            template='plotly_white',
+            font=dict(size=12),
+            xaxis=dict(tickangle=45)
         )
         
         return fig
     
-    def create_dash_app(self):
-        """Create a Dash web application."""
-        self.app = dash.Dash(__name__)
-        
-        # Load data
-        self.load_sample_data()
-        
-        # Define layout
-        self.app.layout = html.Div([
-            html.H1("Interactive Yield Curve Visualization", 
-                   style={'textAlign': 'center', 'marginBottom': 30}),
-            
-            # Controls
-            html.Div([
-                html.Div([
-                    html.Label("Select Visualization Type:"),
-                    dcc.Dropdown(
-                        id='viz-type',
-                        options=[
-                            {'label': 'Animated Yield Curves', 'value': 'animated'},
-                            {'label': '3D Surface Plot', 'value': '3d'},
-                            {'label': 'Heatmap', 'value': 'heatmap'}
-                        ],
-                        value='animated'
-                    )
-                ], style={'width': '30%', 'display': 'inline-block'}),
-                
-                html.Div([
-                    html.Label("Date Range:"),
-                    dcc.DatePickerRange(
-                        id='date-range',
-                        start_date=self.data.index[0],
-                        end_date=self.data.index[-1],
-                        display_format='YYYY-MM-DD'
-                    )
-                ], style={'width': '40%', 'display': 'inline-block', 'marginLeft': '5%'}),
-                
-                html.Div([
-                    html.Label("Animation Speed:"),
-                    dcc.Slider(
-                        id='speed-slider',
-                        min=50,
-                        max=500,
-                        step=50,
-                        value=200,
-                        marks={i: f'{i}ms' for i in range(50, 501, 100)}
-                    )
-                ], style={'width': '20%', 'display': 'inline-block', 'marginLeft': '5%'})
-            ], style={'marginBottom': 30}),
-            
-            # Main plot
-            dcc.Graph(id='main-plot', style={'height': '70vh'}),
-            
-            # Statistics panel
-            html.Div(id='stats-panel', style={'marginTop': 20})        ])
-        
-        # Callbacks
-        @self.app.callback(
-            Output('main-plot', 'figure'),
-            [Input('viz-type', 'value'),
-             Input('date-range', 'start_date'),
-             Input('date-range', 'end_date')]
-        )
-        def update_plot(viz_type, start_date, end_date):
-            # Filter data based on date range
-            filtered_data = self.data[start_date:end_date]
-            
-            if viz_type == 'animated':
-                return self.create_animated_plot()
-            elif viz_type == '3d':
-                return self.create_3d_surface_plot()
-            elif viz_type == 'heatmap':
-                return self.create_heatmap()
-        
-        return self.app
-    
-    def run_web_app(self, debug=True, port=8050):
+    def run_web_app(self, port=8050, debug=False):
         """Run the web application."""
-        if self.app is None:
-            self.create_dash_app()
+        print(f"🚀 Starting Treasury Yield Curve Web Application...")
+        print(f"🌐 Loading at http://localhost:{port}")
         
-        print(f"Starting web application on http://localhost:{port}")
-        self.app.run(debug=debug, port=port)
+        # Load data before starting
+        self.load_fred_data()
+        
+        self.app.run(host='0.0.0.0', port=port, debug=debug)
     
-    def run_server(self, debug=True, port=8050):
-        """Alias for run_web_app for backward compatibility."""
-        return self.run_web_app(debug=debug, port=port)
+    def run_server(self, port=8050, debug=False):
+        """Alias for run_web_app for compatibility."""
+        return self.run_web_app(port, debug)
+
+def main():
+    """Main function to run the application."""
+    # Load configuration
+    try:
+        with open('config.json', 'r') as f:
+            config = json.load(f)
+        fred_api_key = config.get('fred_api_key')
+    except:
+        fred_api_key = "df764c31adfa56ce0e019e7f5b89850a"  # Your API key
     
-    def export_to_html(self, filename='yield_curve_viz.html'):
-        """Export the visualization to an HTML file."""
-        fig = self.create_animated_plot()
-        fig.write_html(filename)
-        print(f"Visualization exported to {filename}")
-
-# Standalone plotting functions for quick use
-def quick_yield_curve_animation(start_date='1990-01-01', end_date=None):
-    """Quick function to create and display yield curve animation."""
-    viz = WebYieldCurveVisualizer()
-    viz.load_sample_data(start_date, end_date)
-    fig = viz.create_animated_plot()
-    fig.show()
-    return fig
-
-def export_yield_curve_html(filename='yield_curve.html', start_date='1990-01-01'):
-    """Export yield curve visualization to HTML."""
-    viz = WebYieldCurveVisualizer()
-    viz.load_sample_data(start_date)
-    viz.export_to_html(filename)
+    # Create and run the application
+    app = WebYieldCurveVisualizer(fred_api_key=fred_api_key)
+    app.run_web_app(port=8050, debug=True)
 
 if __name__ == "__main__":
-    # Create and run the web application
-    viz = WebYieldCurveVisualizer()
-    viz.run_web_app(debug=True, port=8050)
+    main()
