@@ -54,6 +54,9 @@ class WebYieldCurveVisualizer:
                 print("✅ FRED API initialized successfully")
             except Exception as e:
                 print(f"⚠️ FRED API initialization failed: {e}")
+        
+        # Load data immediately upon initialization
+        self.load_fred_data()
                 
         # Create Dash app
         self.app = dash.Dash(__name__)
@@ -200,33 +203,32 @@ class WebYieldCurveVisualizer:
                         start_date=dt.datetime(2020, 1, 1),
                         end_date=dt.datetime.now(),
                         display_format='YYYY-MM-DD',
+                        with_portal=True,
                         style={'marginBottom': '15px'}
                     ),
                 ], style={'marginBottom': '20px'}),
                 
-                # Animation Controls for Time Lapse
+                # Animation Speed Control (only for animated plots)
                 html.Div([
-                    html.Label("⏯️ Animation Controls:", style={'fontWeight': 'bold', 'marginBottom': '10px'}),
-                    html.Div([
-                        html.Button("▶️ Play", id="play-button", n_clicks=0, 
-                                   style={'marginRight': '10px', 'backgroundColor': '#27ae60', 'color': 'white', 'border': 'none', 'padding': '8px 15px', 'borderRadius': '4px'}),
-                        html.Button("⏸️ Pause", id="pause-button", n_clicks=0,
-                                   style={'marginRight': '10px', 'backgroundColor': '#e74c3c', 'color': 'white', 'border': 'none', 'padding': '8px 15px', 'borderRadius': '4px'}),
-                        html.Button("⏹️ Stop", id="stop-button", n_clicks=0,
-                                   style={'backgroundColor': '#95a5a6', 'color': 'white', 'border': 'none', 'padding': '8px 15px', 'borderRadius': '4px'}),
-                    ], style={'marginBottom': '15px'}),
-                    
-                    html.Label("🚀 Animation Speed:", style={'fontWeight': 'bold'}),
+                    html.Label("🚀 Animation Speed:", style={'fontWeight': 'bold', 'marginBottom': '10px'}),
                     dcc.Slider(
                         id='animation-speed-slider',
                         min=50,
                         max=1000,
-                        step=50,
+                        step=25,  # Smaller steps for more granular control
                         value=200,
-                        marks={50: 'Fast', 200: 'Medium', 500: 'Slow', 1000: 'Very Slow'},
-                        tooltip={"placement": "bottom", "always_visible": True}
+                        marks={
+                            50: {'label': 'Fast', 'style': {'color': '#27ae60'}},
+                            200: {'label': 'Medium', 'style': {'color': '#f39c12'}},
+                            500: {'label': 'Slow', 'style': {'color': '#e74c3c'}},
+                            1000: {'label': 'Very Slow', 'style': {'color': '#8e44ad'}}
+                        },
+                        tooltip={"placement": "bottom", "always_visible": True},
+                        updatemode='drag'  # This enables real-time updates while dragging
                     ),
-                ], style={'marginBottom': '20px'}),
+                    html.P("💡 Animation speed updates in real-time! No need to pause/play.", 
+                           style={'fontSize': '12px', 'color': '#7f8c8d', 'fontStyle': 'italic', 'marginTop': '10px'})
+                ], id='speed-control-div', style={'marginBottom': '20px'}),
                 
                 # Visualization Type Selector
                 html.Div([
@@ -247,25 +249,14 @@ class WebYieldCurveVisualizer:
             
             # Main Visualization Area
             html.Div([
-                dcc.Graph(id='main-chart', style={'height': '600px'})
+                dcc.Graph(id='main-chart', style={'height': '700px'})
             ]),
             
             # Current Yield Curve Display
             html.Div([
-                html.H3("📊 Current Yield Curve", style={'color': '#2c3e50'}),
+                html.H3("📊 Current Yield Curve", style={'color': '#2c3e50', 'marginBottom': '15px'}),
                 html.Div(id='current-yields-display')
             ], style={'backgroundColor': '#f8f9fa', 'padding': '20px', 'marginTop': '20px', 'borderRadius': '8px'}),
-            
-            # Hidden div to store animation state
-            html.Div(id='animation-state', style={'display': 'none'}),
-            
-            # Interval component for animation
-            dcc.Interval(
-                id='animation-interval',
-                interval=200,  # milliseconds
-                n_intervals=0,
-                disabled=True
-            )
         ])
     
     def setup_callbacks(self):
@@ -297,16 +288,10 @@ class WebYieldCurveVisualizer:
             [Input('viz-type-dropdown', 'value'),
              Input('date-range-picker', 'start_date'),
              Input('date-range-picker', 'end_date'),
-             Input('animation-speed-slider', 'value'),
-             Input('animation-interval', 'n_intervals')],
-            [State('animation-state', 'children')]
+             Input('animation-speed-slider', 'value')]
         )
-        def update_main_chart(viz_type, start_date, end_date, animation_speed, n_intervals, animation_state):
+        def update_main_chart(viz_type, start_date, end_date, animation_speed):
             """Update the main chart based on selected visualization type."""
-            
-            if self.data is None:
-                # Load data if not already loaded
-                self.load_fred_data()
             
             if self.data is None or self.data.empty:
                 return go.Figure().add_annotation(
@@ -343,31 +328,15 @@ class WebYieldCurveVisualizer:
                 return self.create_animated_plot(filtered_data, animation_speed)
         
         @self.app.callback(
-            Output('animation-interval', 'disabled'),
-            Output('animation-interval', 'interval'),
-            [Input('play-button', 'n_clicks'),
-             Input('pause-button', 'n_clicks'),
-             Input('stop-button', 'n_clicks'),
-             Input('animation-speed-slider', 'value')]
+            Output('speed-control-div', 'style'),
+            Input('viz-type-dropdown', 'value')
         )
-        def control_animation(play_clicks, pause_clicks, stop_clicks, speed):
-            """Control animation playback."""
-            ctx = dash.callback_context
-            
-            if not ctx.triggered:
-                return True, speed  # Disabled by default
-            
-            button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-            
-            if button_id == 'play-button':
-                return False, speed  # Enable animation
-            elif button_id == 'pause-button' or button_id == 'stop-button':
-                return True, speed   # Disable animation
-            elif button_id == 'animation-speed-slider':
-                # Update speed but keep current state
-                return dash.no_update, speed
-            
-            return True, speed
+        def toggle_speed_control(viz_type):
+            """Show/hide speed control based on visualization type."""
+            if viz_type == 'animated':
+                return {'marginBottom': '20px'}
+            else:
+                return {'marginBottom': '20px', 'display': 'none'}
         
         @self.app.callback(
             Output('current-yields-display', 'children'),
@@ -401,14 +370,14 @@ class WebYieldCurveVisualizer:
             return yields_display
     
     def create_animated_plot(self, data, animation_speed=200):
-        """Create animated time lapse yield curve plot."""
+        """Create animated time lapse yield curve plot with real-time speed control."""
         
         # Prepare maturity years for x-axis
         maturity_years = [self.maturities[col]['years'] for col in data.columns if col in self.maturities]
         maturity_labels = [self.maturities[col]['label'] for col in data.columns if col in self.maturities]
         
-        # Sample data for animation (every 30 days to manage performance)
-        sample_freq = max(1, len(data) // 100)  # Max 100 frames
+        # Sample data for animation (every 7 days to manage performance)
+        sample_freq = max(1, len(data) // 150)  # Max 150 frames for better performance
         sampled_data = data.iloc[::sample_freq].copy()
         
         # Create frames for animation
@@ -441,9 +410,10 @@ class WebYieldCurveVisualizer:
                             text=f"📅 {date.strftime('%B %d, %Y')}",
                             showarrow=False,
                             font=dict(size=16, color='#2c3e50'),
-                            bgcolor='rgba(255,255,255,0.8)',
+                            bgcolor='rgba(255,255,255,0.9)',
                             bordercolor='#bdc3c7',
-                            borderwidth=1
+                            borderwidth=1,
+                            borderpad=8
                         )
                     ]
                 )
@@ -451,9 +421,12 @@ class WebYieldCurveVisualizer:
             frames.append(frame)
         
         # Create initial plot
-        initial_yields = [sampled_data.iloc[0][col] for col in data.columns if col in self.maturities and pd.notna(sampled_data.iloc[0][col])]
-        initial_maturities = [self.maturities[col]['years'] for col in data.columns if col in self.maturities and pd.notna(sampled_data.iloc[0][col])]
-        initial_labels = [self.maturities[col]['label'] for col in data.columns if col in self.maturities and pd.notna(sampled_data.iloc[0][col])]
+        if len(sampled_data) > 0:
+            initial_yields = [sampled_data.iloc[0][col] for col in data.columns if col in self.maturities and pd.notna(sampled_data.iloc[0][col])]
+            initial_maturities = [self.maturities[col]['years'] for col in data.columns if col in self.maturities and pd.notna(sampled_data.iloc[0][col])]
+            initial_labels = [self.maturities[col]['label'] for col in data.columns if col in self.maturities and pd.notna(sampled_data.iloc[0][col])]
+        else:
+            initial_yields, initial_maturities, initial_labels = [], [], []
         
         fig = go.Figure(
             data=[
@@ -471,22 +444,42 @@ class WebYieldCurveVisualizer:
             frames=frames
         )
         
-        # Update layout
+        # Calculate transition duration based on speed
+        transition_duration = max(50, animation_speed // 4)  # Smooth transitions
+        
+        # Update layout with improved animation controls that respond to speed changes
         fig.update_layout(
-            title="🎬 US Treasury Yield Curve Time Lapse",
+            title={
+                'text': "🎬 US Treasury Yield Curve Time Lapse",
+                'x': 0.5,
+                'xanchor': 'center',
+                'font': {'size': 24, 'color': '#2c3e50'}
+            },
             xaxis_title="Maturity (Years)",
             yaxis_title="Yield (%)",
-            xaxis=dict(type='log', tickmode='array', tickvals=maturity_years, ticktext=maturity_labels),
-            yaxis=dict(range=[0, max(data.max()) * 1.1]),
+            xaxis=dict(
+                type='log', 
+                tickmode='array', 
+                tickvals=maturity_years, 
+                ticktext=maturity_labels,
+                gridcolor='#ecf0f1'
+            ),
+            yaxis=dict(
+                range=[0, max(data.max()) * 1.1] if not data.empty else [0, 10],
+                gridcolor='#ecf0f1'
+            ),
             showlegend=False,
             template='plotly_white',
             font=dict(size=12),
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            # Add animation configuration that updates with speed
             updatemenus=[{
                 'type': 'buttons',
                 'direction': 'left',
                 'showactive': False,
                 'x': 0.1,
-                'y': 0,
+                'y': 0.02,
                 'xanchor': 'right',
                 'yanchor': 'top',
                 'pad': {'t': 87, 'r': 10},
@@ -495,9 +488,16 @@ class WebYieldCurveVisualizer:
                         'label': '▶️ Play',
                         'method': 'animate',
                         'args': [None, {
-                            'frame': {'duration': animation_speed, 'redraw': True},
+                            'frame': {
+                                'duration': animation_speed, 
+                                'redraw': True
+                            },
                             'fromcurrent': True,
-                            'transition': {'duration': animation_speed//2, 'easing': 'quadratic-in-out'}
+                            'transition': {
+                                'duration': transition_duration, 
+                                'easing': 'quadratic-in-out'
+                            },
+                            'mode': 'immediate'
                         }]
                     },
                     {
@@ -516,30 +516,37 @@ class WebYieldCurveVisualizer:
                 'yanchor': 'top',
                 'xanchor': 'left',
                 'currentvalue': {
-                    'font': {'size': 20},
-                    'prefix': 'Date: ',
+                    'font': {'size': 16},
+                    'prefix': '📅 Date: ',
                     'visible': True,
                     'xanchor': 'right'
                 },
-                'transition': {'duration': animation_speed//2, 'easing': 'cubic-in-out'},
+                'transition': {
+                    'duration': transition_duration, 
+                    'easing': 'cubic-in-out'
+                },
                 'pad': {'b': 10, 't': 50},
                 'len': 0.9,
                 'x': 0.1,
                 'y': 0,
                 'steps': [
-                    {
-                        'args': [
+                    {                        'args': [
                             [frame.name],
                             {
-                                'frame': {'duration': animation_speed, 'redraw': True},
+                                'frame': {
+                                    'duration': animation_speed, 
+                                    'redraw': True
+                                },
                                 'mode': 'immediate',
-                                'transition': {'duration': animation_speed//2}
+                                'transition': {
+                                    'duration': transition_duration
+                                }
                             }
                         ],
-                        'label': frame.name,
-                        'method': 'animate'
-                    }
-                    for frame in frames
+                    'label': frame.name,
+                    'method': 'animate'
+                }
+                for frame in frames
                 ]
             }]
         )
@@ -645,9 +652,6 @@ class WebYieldCurveVisualizer:
         """Run the web application."""
         print(f"🚀 Starting Treasury Yield Curve Web Application...")
         print(f"🌐 Loading at http://localhost:{port}")
-        
-        # Load data before starting
-        self.load_fred_data()
         
         self.app.run(host='0.0.0.0', port=port, debug=debug)
     
