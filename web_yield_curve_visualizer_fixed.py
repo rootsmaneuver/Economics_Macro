@@ -48,18 +48,21 @@ class WebYieldCurveVisualizer:
             '3yr': {'years': 3, 'series': 'DGS3', 'label': '3 Year'},
             '5yr': {'years': 5, 'series': 'DGS5', 'label': '5 Year'},
             '7yr': {'years': 7, 'series': 'DGS7', 'label': '7 Year'},
-            '10yr': {'years': 10, 'series': 'DGS10', 'label': '10 Year'},            '20yr': {'years': 20, 'series': 'DGS20', 'label': '20 Year'},
+            '10yr': {'years': 10, 'series': 'DGS10', 'label': '10 Year'},
+            '20yr': {'years': 20, 'series': 'DGS20', 'label': '20 Year'},
             '30yr': {'years': 30, 'series': 'DGS30', 'label': '30 Year'}
         }
         # Color palette
         self.color_scale = px.colors.sequential.Viridis
-        
+
     def load_sample_data(self, start_date='1990-01-01', end_date=None):
         """Load sample yield curve data."""
         if end_date is None:
             end_date = dt.datetime.now().strftime('%Y-%m-%d')
 
-        date_range = pd.date_range(start=start_date, end=end_date, freq='ME')        # Generate realistic yield curve data
+        date_range = pd.date_range(start=start_date, end=end_date, freq='ME')
+
+        # Generate realistic yield curve data
         np.random.seed(42)
         all_data = {}
 
@@ -83,10 +86,10 @@ class WebYieldCurveVisualizer:
             base_rate = current_yields.get(maturity, 4.0)
 
             # Add historical time variation
-            # Less extreme time trend (1.5% to 3.5% range)            # Smaller business cycle variation (±1%)
+            # Less extreme time trend (1.5% to 3.5% range)
+            # Smaller business cycle variation (±1%)
             time_trend = np.linspace(1.5, 0.0, len(date_range))
-            business_cycle = 1.0 * \
-                np.sin(np.linspace(0, 6 * np.pi, len(date_range)))
+            business_cycle = 1.0 * np.sin(np.linspace(0, 6 * np.pi, len(date_range)))
             # Smaller random noise
             noise = np.random.normal(0, 0.2, len(date_range))
             rates = base_rate + time_trend + business_cycle + noise
@@ -124,14 +127,10 @@ class WebYieldCurveVisualizer:
                     end=end_date
                 )
                 if not series_data.empty:
-                    # Resample to monthly frequency and forward fill missing
-                    # values
+                    # Resample to monthly frequency and forward fill missing values
                     monthly_data = series_data.resample('ME').last().ffill()
                     all_data[maturity] = monthly_data
-                    print(
-    f"✓ {
-        info['label']}: {
-            len(monthly_data)} data points")
+                    print(f"✓ {info['label']}: {len(monthly_data)} data points")
                 else:
                     print(f"⚠ No data available for {info['label']}")
 
@@ -145,18 +144,14 @@ class WebYieldCurveVisualizer:
 
             # Drop rows where all values are NaN
             self.data = self.data.dropna(how='all')
-              # Forward fill any remaining NaN values
+            # Forward fill any remaining NaN values
             self.data = self.data.ffill()
 
             # Set flag to indicate we're using real data
             self.using_real_data = True
 
-            print(
-                f"✓ Successfully loaded REAL yield curve data: {len(self.data)} observations")
-            print(
-    f"Date range: {
-        self.data.index.min().strftime('%Y-%m-%d')} to {
-            self.data.index.max().strftime('%Y-%m-%d')}")
+            print(f"✓ Successfully loaded REAL yield curve data: {len(self.data)} observations")
+            print(f"Date range: {self.data.index.min().strftime('%Y-%m-%d')} to {self.data.index.max().strftime('%Y-%m-%d')}")
             return self.data
         else:
             print("⚠ No FRED data could be loaded. Using sample data instead.")
@@ -169,22 +164,16 @@ class WebYieldCurveVisualizer:
                 config = json.load(f)
 
             # Get settings from config
-            fred_api_key = config.get('fred_api_key') or config.get(
-                'data_sources', {}).get('fred_api_key')
-            primary_source = config.get(
-    'data_sources', {}).get(
-        'primary', 'sample_data')
-            start_date = config.get(
-    'default_settings', {}).get(
-        'start_date', '1990-01-01')
+            fred_api_key = config.get('fred_api_key') or config.get('data_sources', {}).get('fred_api_key')
+            primary_source = config.get('data_sources', {}).get('primary', 'sample_data')
+            start_date = config.get('default_settings', {}).get('start_date', '1990-01-01')
 
             # Update API key if provided in config
             if fred_api_key and fred_api_key != "YOUR_FRED_API_KEY_HERE":
                 self.fred_api_key = fred_api_key
                 if FREDAPI_AVAILABLE:
                     self.fred = Fred(api_key=fred_api_key)
-                    print(
-                        f"✅ FRED API initialized with key: {fred_api_key[:5]}...")
+                    print(f"✅ FRED API initialized with key: {fred_api_key[:5]}...")
                 else:
                     print("⚠️ FREDAPI package not available. Will use sample data.")
             else:
@@ -212,8 +201,7 @@ class WebYieldCurveVisualizer:
 
         # Prepare data for animation
         frames = []
-        maturity_years = [self.maturities[m]['years']
-            for m in self.data.columns]
+        maturity_years = [self.maturities[m]['years'] for m in self.data.columns]
 
         for i, (date, row) in enumerate(self.data.iterrows()):
             frame_data = go.Scatter(
@@ -229,8 +217,7 @@ class WebYieldCurveVisualizer:
                 data=[frame_data],
                 name=str(i),
                 layout=go.Layout(
-                    title=f"US Treasury Yield Curve - {
-    date.strftime('%B %Y')}",
+                    title=f"US Treasury Yield Curve - {date.strftime('%B %Y')}",
                     annotations=[
                         dict(
                             x=0.02, y=0.98,
@@ -270,11 +257,10 @@ class WebYieldCurveVisualizer:
                 ),
                 yaxis=dict(
                     title="Yield (%)",
-                    range=[
-    self.data.min().min() - 0.5,
-     self.data.max().max() + 0.5],
+                    range=[self.data.min().min() - 0.5, self.data.max().max() + 0.5],
                     showgrid=True
-                ), updatemenus=[{
+                ), 
+                updatemenus=[{
                     "buttons": [
                         {
                             "args": [None, {"frame": {"duration": animation_speed, "redraw": True},
@@ -297,7 +283,8 @@ class WebYieldCurveVisualizer:
                     "xanchor": "right",
                     "y": 0,
                     "yanchor": "top"
-                }], sliders=[{
+                }], 
+                sliders=[{
                     "active": 0,
                     "yanchor": "top",
                     "xanchor": "left",
@@ -338,10 +325,8 @@ class WebYieldCurveVisualizer:
             self.load_sample_data()
 
         # Prepare data for 3D surface
-        maturity_years = [self.maturities[m]['years']
-            for m in self.data.columns]
-        dates_numeric = [
-    (d - self.data.index[0]).days for d in self.data.index]
+        maturity_years = [self.maturities[m]['years'] for m in self.data.columns]
+        dates_numeric = [(d - self.data.index[0]).days for d in self.data.index]
 
         X, Y = np.meshgrid(maturity_years, dates_numeric)
         Z = self.data.values
@@ -365,7 +350,9 @@ class WebYieldCurveVisualizer:
             ),
             height=700,
             template="plotly_white"
-        )        return fig
+        )
+
+        return fig
 
     def create_heatmap(self):
         """Create a heatmap of yield curves over time."""
@@ -421,7 +408,8 @@ class WebYieldCurveVisualizer:
                         value='animated'
                     )
                 ], style={'width': '30%', 'display': 'inline-block'}),
-                  html.Div([
+                
+                html.Div([
                     html.Label("Date Range:"),
                     html.Div([
                         # Direct date input for start date
@@ -465,7 +453,8 @@ class WebYieldCurveVisualizer:
                         )
                     ])
                 ], style={'width': '40%', 'display': 'inline-block', 'marginLeft': '5%'}),
-                  html.Div([
+                
+                html.Div([
                     html.Label("Animation Speed:"),
                     dcc.Slider(
                         id='speed-slider',
@@ -476,7 +465,8 @@ class WebYieldCurveVisualizer:
                         marks={i: f'{i}ms' for i in range(50, 501, 100)},
                         updatemode='drag'  # Update while dragging
                     )
-                ], style={'width': '20%', 'display': 'inline-block', 'marginLeft': '5%'})            ], style={'marginBottom': 30}),
+                ], style={'width': '20%', 'display': 'inline-block', 'marginLeft': '5%'})
+            ], style={'marginBottom': 30}),
             
             # Data source indicator
             html.Div([
@@ -491,7 +481,8 @@ class WebYieldCurveVisualizer:
             dcc.Graph(id='main-plot', style={'height': '70vh'}),
             
             # Statistics panel
-            html.Div(id='stats-panel', style={'marginTop': 20})        ])
+            html.Div(id='stats-panel', style={'marginTop': 20})
+        ])
         
         # Callbacks
         @self.app.callback(
@@ -545,7 +536,8 @@ class WebYieldCurveVisualizer:
             except:
                 # If invalid, return the current end date
                 return self.data.index[-1].strftime('%Y-%m-%d')
-                  # Synchronize DatePickerRange with text inputs
+        
+        # Synchronize DatePickerRange with text inputs
         @self.app.callback(
             [Output('start-date-input', 'value'),
              Output('end-date-input', 'value')],

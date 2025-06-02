@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-US Treasury Yield Curve Visualization Application
+US Treasury Yield Curve Visualization Application - Fixed Version
 Main entry point for the yield curve visualization system
 
 Features:
@@ -61,9 +61,11 @@ def load_config():
 def run_web_app(port=8050, debug=False):
     """Launch the interactive web application."""
     try:
-        from web_yield_curve_visualizer import WebYieldCurveVisualizer
+        # Import the fixed version
+        import web_yield_curve_visualizer_fixed as web_yield_curve_visualizer
+        from web_yield_curve_visualizer_fixed import WebYieldCurveVisualizer
         
-        print("🚀 Starting Treasury Yield Curve Web Application...")
+        print("🚀 Starting Treasury Yield Curve Web Application (FIXED VERSION)...")
         print("=" * 60)
         
         # Load configuration
@@ -98,7 +100,6 @@ def run_web_app(port=8050, debug=False):
                 print("⚠️ No valid FRED API key found in config")
                 visualizer = WebYieldCurveVisualizer()
                 visualizer.load_sample_data()
-                visualizer.using_real_data = False
             
         print(f"🌐 Starting server on http://localhost:{port}")
         print("📱 Open your browser and navigate to the URL above")
@@ -128,7 +129,8 @@ def run_assessment():
 def create_demo():
     """Create a quick demonstration chart."""
     try:
-        from web_yield_curve_visualizer import WebYieldCurveVisualizer
+        import web_yield_curve_visualizer_fixed as web_yield_curve_visualizer
+        from web_yield_curve_visualizer_fixed import WebYieldCurveVisualizer
         
         print("🎨 Creating demonstration yield curve...")
         
@@ -142,7 +144,7 @@ def create_demo():
         
         # Load data and create demo
         visualizer.load_sample_data()
-        demo_file = 'demo_yield_curve.html'
+        demo_file = 'demo_yield_curve_fixed.html'
         visualizer.export_to_html(demo_file)
         print(f"✅ Demo chart created: {demo_file}")
         
@@ -152,15 +154,14 @@ def create_demo():
 def main():
     """Main entry point with command line interface."""
     parser = argparse.ArgumentParser(
-        description="US Treasury Yield Curve Visualization Application",
+        description="US Treasury Yield Curve Visualization Application (FIXED VERSION)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python app.py                    # Interactive mode
-  python app.py --web             # Launch web application
-  python app.py --demo            # Create demo chart
-  python app.py --assess          # Run assessment
-  python app.py --web --port 9000 # Custom port
+  python app_fixed.py                   # Interactive mode
+  python app_fixed.py --web             # Launch web application
+  python app_fixed.py --demo            # Create demo chart
+  python app_fixed.py --web --port 9000 # Custom port
         """
     )
     
@@ -168,8 +169,6 @@ Examples:
                        help='Launch web application')
     parser.add_argument('--demo', action='store_true',
                        help='Create demonstration chart')
-    parser.add_argument('--assess', action='store_true',
-                       help='Run comprehensive assessment')
     parser.add_argument('--port', type=int, default=8050,
                        help='Port for web application (default: 8050)')
     parser.add_argument('--debug', action='store_true',
@@ -179,7 +178,7 @@ Examples:
     
     # Display header
     print("=" * 60)
-    print("🏛️  US Treasury Yield Curve Visualization")
+    print("🏛️  US Treasury Yield Curve Visualization (FIXED VERSION)")
     print("   Real-Time Financial Data Analysis")
     print("=" * 60)
     
@@ -192,34 +191,9 @@ Examples:
         run_web_app(port=args.port, debug=args.debug)
     elif args.demo:
         create_demo()
-    elif args.assess:
-        run_assessment()
     else:
-        # Interactive mode
-        print("\nChoose your preferred option:")
-        print("1. 🌐 Launch Web Application (Recommended)")
-        print("2. 🎨 Create Demo Chart")
-        print("3. 📊 Run Assessment")
-        print("4. ❌ Exit")
-        
-        try:
-            choice = input("\nEnter your choice (1-4): ").strip()
-            
-            if choice == '1':
-                run_web_app(port=args.port, debug=args.debug)
-            elif choice == '2':
-                create_demo()
-            elif choice == '3':
-                run_assessment()
-            elif choice == '4':
-                print("👋 Goodbye!")
-            else:
-                print("❌ Invalid choice. Please select 1-4.")
-                return 1
-                
-        except KeyboardInterrupt:
-            print("\n👋 Goodbye!")
-            return 0
+        # Run web app directly
+        run_web_app(port=args.port, debug=args.debug)
     
     return 0
 
